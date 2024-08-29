@@ -61,12 +61,12 @@ class TFNode:
                         self.odom_msg.pose.pose.position.y = self.start_position.pose.pose.position.y + sin(self.initial_yaw) * x1 + cos(self.initial_yaw) * y1
                         self.odom_msg.pose.pose.position.z = self.start_position.pose.pose.position.z
                         self.odom_pub.publish(self.odom_msg)
-                        rospy.loginfo("in slam mission and using slam localization")
+                        #rospy.loginfo("in slam mission and using slam localization")
                         # self.odom_start_pub.publish(self.start_position)
                     else:
                         rospy.loginfo("start_position or initial_yaw is None")
                 else:
-                    rospy.loginfo("in slam mission but using gps")
+                    #rospy.loginfo("in slam mission but using gps")
                     self.convertLL2UTM()
                     self.odom_pub.publish(self.odom_msg)
             rate.sleep()
@@ -179,6 +179,42 @@ class TFNode:
             self.start_position = Odometry()
             self.is_2nd_slam_started = False
             self.initial_yaw = None
+        
+    def slam_odom_callback(self):
+        self.odom_queue.append(self.odom_msg)
+
+    def get_yaw_from_msg(msg):    
+            if msg is not None:
+                # 쿼터니언을 Euler 각도로 변환
+                orientation = [msg.pose.pose.orientation.x,
+                            msg.pose.pose.orientation.y,
+                            msg.pose.pose.orientation.z,
+                            msg.pose.pose.orientation.w]
+
+                # 쿼터니언에서 Euler 각도 (roll, pitch, yaw)로 변환
+                _, _, heading = euler_from_quaternion(orientation)
+                return heading
+                
+    def restart_slam(self,slam_status):
+        if slam_status.status == False:
+            latest_prior_pose = None
+            for odom_msg in self.odom_queue:
+                if odom_msg.header.stamp < slam_status.stamp:
+                    if latest_prior_pose is None or odom_msg.header.stamp > latest_prior_pose.header.stamp:
+                        latest_prior_pose = odom_msg
+            if latest_prior_pose:
+                self.start_position.pose.pose.position.x = self.latest_prior_pose.pose.pose.position.x
+                self.start_position.pose.pose.position.y = self.latest_prior_pose.pose.pose.position.y
+                self.start_position.pose.pose.position.z = self.latest_prior_pose.pose.pose.position.z
+
+                self.initial_yaw = self.get_yaw_from_msg(self.start_position)
+
+                rospy.loginfo("SLAM started at position: x = {:.6f}, y = {:.6f}, yaw = {:.6f}".format(
+                    self.start_position.pose.pose.position.x,
+                    self.start_position.pose.pose.position.y,
+                    self.initial_yaw
+                ))
+                self.is_1st_slam_started = True
 
     
 if __name__ == '__main__':
